@@ -1,0 +1,97 @@
+# End-to-End AutoML (H2O + MLflow + FastAPI + Streamlit)
+# Project 3: Credit Card Fraud Detection
+
+services:
+  mlflow:
+    build: ./backend
+    image: e2e-automl-backend:latest
+    environment:
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,localhost,127.0.0.1,backend,trainer
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination /mlflow/artifacts
+      --serve-artifacts
+      --host 0.0.0.0
+      --port 5000
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - project_network
+
+  trainer:
+    build: ./backend
+    image: e2e-automl-backend:latest
+    command: ["python", "train.py", "--target", "Class"]
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: fraud-detection-automl
+      MODEL_ALIAS: champion
+      MODEL_ARTIFACT_DIR: /app/model_artifacts
+      EXPERIMENT_NAME: credit-card-fraud-automl
+      AUTOML_MAX_MODELS: "10"
+      AUTOML_MAX_RUNTIME_SECS: "120"
+      AUTOML_SAMPLE_FRAC: "1.0"
+    volumes:
+      - model_artifacts:/app/model_artifacts
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - project_network
+
+  backend:
+    build: ./backend
+    image: e2e-automl-backend:latest
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: fraud-detection-automl
+      MODEL_ALIAS: champion
+      MODEL_ARTIFACT_DIR: /app/model_artifacts
+    ports:
+      - "8000:8000"
+    volumes:
+      - model_artifacts:/app/model_artifacts
+    depends_on:
+      mlflow:
+        condition: service_healthy
+      trainer:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks:
+      - project_network
+
+  frontend:
+    build: ./frontend
+    image: e2e-automl-frontend:latest
+    environment:
+      BACKEND_URL: http://backend:8000/predict
+    ports:
+      - "8501:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - project_network
+
+volumes:
+  mlflow_data:
+  model_artifacts:
+
+networks:
+  project_network:
