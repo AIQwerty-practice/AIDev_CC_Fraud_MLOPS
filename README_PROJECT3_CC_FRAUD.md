@@ -55,3 +55,23 @@ python preprocess_creditcard.py
 ```
 
 This drops `Time`, fits `StandardScaler` on the training `Amount` only, transforms train/test, and creates the sample files.
+
+## Dataset Setup
+
+The full Kaggle Credit Card Fraud dataset is not included in this repository because of file size limits.
+
+Download the dataset from Kaggle https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud and place:
+
+
+backend/data/raw/creditcard.csv
+
+Then run:
+
+notebooks/01_EDA_and_Data_PreProcessing_CC_Fraud.ipynb
+
+This generates:
+
+backend/data/processed/train.csv
+backend/data/processed/test.csv
+backend/data/sample_test.csv
+backend/data/sample_test_labeled.csv
