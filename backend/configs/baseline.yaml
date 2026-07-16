@@ -8,8 +8,8 @@ test_path: data/processed/test.csv
 use_pre_split_test: true
 test_size: 0.2
 sample_frac: 1.0
-max_runtime_secs: 120
-max_models: 10
+max_runtime_secs: 600
+max_models: 3
 seed: 42
 stopping_metric: AUC
 stopping_rounds: 3
