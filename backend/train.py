@@ -1,150 +1,210 @@
-# =========================================
-# H2O AutoML Training with MLflow Tracking
-# - Logs run + metrics to the MLflow Tracking Server
-# - Registers the best model in the MLflow Model Registry under an alias
-# Original author: Kenneth Leung (modernised for MLflow 2.x + Model Registry)
-# =========================================
+"""Single entry point for configuration-driven H2O experiments."""
+
 import argparse
 import json
+import logging
 import os
+import shutil
 import tempfile
 
 import h2o
-from h2o.automl import H2OAutoML, get_leaderboard
-
 import mlflow
 import mlflow.h2o
+from h2o.exceptions import H2OError
 from mlflow.tracking import MlflowClient
 
+from experiment_utils import (
+    evaluate_binary_classifier,
+    flatten_config,
+    load_experiment_config,
+    load_experiment_data,
+    predict_probabilities,
+    to_h2o_frames,
+    utc_timestamp,
+    write_evaluation_artifacts,
+)
+from model_factory import leaderboard_as_frame, train_configured_model
+from utils.h2o_connection import connect_h2o
 
-def env(name, default):
-    """Read an env var, falling back to a default (empty string treated as unset)."""
+LOGGER = logging.getLogger("fraud_experiment")
+
+
+def environment_value(name, default=None):
     value = os.getenv(name)
     return value if value not in (None, "") else default
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="H2O AutoML Training and MLflow Tracking")
-    parser.add_argument('--name', '--experiment_name', metavar='',
-                        default=env('EXPERIMENT_NAME', 'credit-card-fraud-automl'),
-                        help='Name of Experiment. Default is credit-card-fraud-automl', type=str)
-    parser.add_argument('--target', '--t', metavar='', required=True,
-                        help='Name of Target Column (y)', type=str)
-    parser.add_argument('--models', '--m', metavar='',
-                        default=int(env('AUTOML_MAX_MODELS', '10')),
-                        help='Number of AutoML models to train. Default is 10', type=int)
-    parser.add_argument('--runtime', metavar='',
-                        default=int(env('AUTOML_MAX_RUNTIME_SECS', '0')),
-                        help='Max AutoML runtime in seconds (0 = no limit). Default is 0', type=int)
-    parser.add_argument('--sample-frac', metavar='',
-                        default=float(env('AUTOML_SAMPLE_FRAC', '1.0')),
-                        help='Fraction of training rows to use (speeds up smoke tests). Default is 1.0', type=float)
+    parser = argparse.ArgumentParser(description="Run a configured H2O/MLflow experiment")
+    parser.add_argument("--config", required=True, help="Path to a YAML experiment configuration")
+    parser.add_argument("--target", help="Optional target-column override for legacy commands")
     return parser.parse_args()
 
 
-def main():
-    args = parse_args()
+def log_feature_importance(model, output_directory):
+    """Log feature importance when the selected H2O model exposes it."""
+    try:
+        importance = model.varimp(use_pandas=True)
+    except (AttributeError, TypeError, ValueError, H2OError) as exc:
+        LOGGER.info("Feature importance is unavailable for %s: %s", model.model_id, exc)
+        return None
+    if importance is None or importance.empty:
+        LOGGER.info("Feature importance is unavailable for %s", model.model_id)
+        return None
+    path = os.path.join(output_directory, "feature_importance.csv")
+    importance.to_csv(path, index=False)
+    return path
 
-    # Point MLflow at the tracking server (defaults to local ./mlruns if unset)
-    tracking_uri = env('MLFLOW_TRACKING_URI', None)
+
+def write_json(path, payload):
+    with open(path, "w", encoding="utf-8") as stream:
+        json.dump(payload, stream, indent=2, default=str)
+
+
+def publish_deployment_artifacts(model, artifact_directory, metadata, column_types):
+    """Publish model pointer and metadata only after registry promotion succeeds."""
+    native_directory = os.path.join(artifact_directory, "h2o_model")
+    os.makedirs(native_directory, exist_ok=True)
+    native_model_path = h2o.save_model(model=model, path=native_directory, force=True)
+
+    staged = {
+        "model_path.txt": native_model_path,
+        "model_metadata.json": metadata,
+        "train_col_types.json": column_types,
+    }
+    for filename, value in staged.items():
+        temporary_path = os.path.join(artifact_directory, f".{filename}.tmp")
+        final_path = os.path.join(artifact_directory, filename)
+        if isinstance(value, str):
+            with open(temporary_path, "w", encoding="utf-8") as stream:
+                stream.write(value)
+        else:
+            write_json(temporary_path, value)
+        os.replace(temporary_path, final_path)
+    return native_model_path
+
+
+def run_experiment(config_path, target_override=None):
+    config = load_experiment_config(config_path)
+    if target_override:
+        config["target"] = target_override
+
+    tracking_uri = environment_value("MLFLOW_TRACKING_URI")
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
+    artifact_directory = environment_value("MODEL_ARTIFACT_DIR", "model_artifacts")
+    os.makedirs(artifact_directory, exist_ok=True)
 
-    model_name = env('MODEL_NAME', 'fraud-detection-automl')
-    model_alias = env('MODEL_ALIAS', 'champion')
-    artifact_dir = env('MODEL_ARTIFACT_DIR', 'model_artifacts')
-    os.makedirs(artifact_dir, exist_ok=True)
+    LOGGER.info("Loading experiment data for '%s'", config["experiment_name"])
+    training_data, evaluation_data = load_experiment_data(config)
+    training_frame, evaluation_frame, predictors = to_h2o_frames(
+        training_data, evaluation_data, config["target"]
+    )
+    actual = evaluation_data[config["target"]].astype(int).to_numpy()
+    started_at = utc_timestamp()
 
-    # Initiate H2O cluster
-    h2o.init()
-
+    mlflow.set_experiment(config["experiment_name"])
     client = MlflowClient()
+    with mlflow.start_run(run_name=config["run_name"]) as run:
+        mlflow.set_tags({
+            "experiment_name": config["experiment_name"],
+            "run_name": config["run_name"],
+            "started_at_utc": started_at,
+            "algorithm": config["algorithm"],
+            "feature_version": config["feature_version"],
+        })
+        mlflow.log_params(flatten_config(config))
+        LOGGER.info("Training %s for run %s", config["algorithm"], run.info.run_id)
+        model, automl = train_configured_model(
+            config, predictors, config["target"], training_frame
+        )
+        probabilities, _ = predict_probabilities(model, evaluation_frame[predictors])
+        predicted, metrics = evaluate_binary_classifier(actual, probabilities, config["threshold"])
+        mlflow.log_metrics(metrics)
 
-    # Create (or reuse) the MLflow experiment
-    experiment = client.get_experiment_by_name(args.name)
-    if experiment is None:
-        experiment_id = mlflow.create_experiment(args.name)
-        experiment = client.get_experiment(experiment_id)
-    mlflow.set_experiment(args.name)
+        metadata = {
+            "experiment_name": config["experiment_name"],
+            "run_name": config["run_name"],
+            "run_id": run.info.run_id,
+            "started_at_utc": started_at,
+            "completed_at_utc": utc_timestamp(),
+            "model_id": model.model_id,
+            "algorithm": config["algorithm"],
+            "feature_version": config["feature_version"],
+            "threshold": config["threshold"],
+            "target": config["target"],
+            "predictors": predictors,
+            "metrics": metrics,
+            "config": config,
+        }
 
-    print(f"Name: {args.name}")
-    print(f"Experiment_id: {experiment.experiment_id}")
-    print(f"Artifact Location: {experiment.artifact_location}")
-    print(f"Tracking uri: {mlflow.get_tracking_uri()}")
+        with tempfile.TemporaryDirectory() as output_directory:
+            evaluation_paths = write_evaluation_artifacts(
+                output_directory, actual, predicted, probabilities, evaluation_data
+            )
+            leaderboard = leaderboard_as_frame(model, automl)
+            for metric_name, metric_value in metrics.items():
+                leaderboard[f"evaluation_{metric_name}"] = metric_value
+            leaderboard_path = os.path.join(output_directory, "leaderboard.csv")
+            leaderboard.to_csv(leaderboard_path, index=False)
+            metadata_path = os.path.join(output_directory, "model_metadata.json")
+            write_json(metadata_path, metadata)
+            config_copy_path = os.path.join(output_directory, "experiment_config.yaml")
+            shutil.copyfile(config_path, config_copy_path)
+            log_feature_importance(model, output_directory)
+            mlflow.log_artifacts(output_directory, artifact_path="experiment")
+            LOGGER.info("Logged %d evaluation artifacts", len(evaluation_paths))
 
-    train_path = os.path.join('data', 'processed', 'train.csv')
-    if not os.path.exists(train_path):
-        raise FileNotFoundError(f'Training data not found: {train_path}')
-
-    # Import data directly as H2O frame (default location is data/processed)
-    main_frame = h2o.import_file(path=train_path)
-
-    # Optional row sampling to keep Docker Desktop smoke tests fast
-    if 0 < args.sample_frac < 1.0:
-        main_frame = main_frame.split_frame(ratios=[args.sample_frac], seed=42)[0]
-        print(f'Sampled training frame to {args.sample_frac:.0%} -> {main_frame.nrow} rows')
-
-    # Save column data types of H2O frame (for matching with test set during prediction)
-    col_types_path = os.path.join(artifact_dir, 'train_col_types.json')
-    with open(col_types_path, 'w', encoding='utf-8') as fp:
-        json.dump(main_frame.types, fp)
-
-    # Set predictor and target columns
-    target = args.target
-    predictors = [n for n in main_frame.col_names if n != target]
-
-    # Factorize target variable so that AutoML tackles a classification problem
-    main_frame[target] = main_frame[target].asfactor()
-
-    with mlflow.start_run() as run:
-        aml = H2OAutoML(
-            max_models=args.models,
-            max_runtime_secs=args.runtime,
-            seed=42,
-            balance_classes=True,        # Target classes imbalanced
-            sort_metric='logloss',
-            verbosity='info',
-            exclude_algos=['GLM', 'DRF'],
+        mlflow.h2o.log_model(
+            model,
+            artifact_path="model",
+            input_example=evaluation_data[predictors].head(5),
+            metadata={
+                "experiment_name": config["experiment_name"],
+                "run_name": config["run_name"],
+                "feature_version": config["feature_version"],
+                "threshold": config["threshold"],
+            },
         )
 
-        aml.train(x=predictors, y=target, training_frame=main_frame)
+    model_name = environment_value("MODEL_NAME", "fraud-detection-automl")
+    model_alias = environment_value("MODEL_ALIAS", "champion")
+    registered = mlflow.register_model(f"runs:/{run.info.run_id}/model", model_name)
+    client.set_registered_model_alias(model_name, model_alias, registered.version)
+    metadata["registered_model_name"] = model_name
+    metadata["registered_model_version"] = registered.version
+    metadata["registered_model_alias"] = model_alias
+    with tempfile.TemporaryDirectory() as output_directory:
+        metadata_path = os.path.join(output_directory, "model_metadata.json")
+        write_json(metadata_path, metadata)
+        with mlflow.start_run(run_id=run.info.run_id):
+            mlflow.log_artifact(metadata_path, artifact_path="experiment")
+    native_path = publish_deployment_artifacts(
+        model, artifact_directory, metadata, training_frame.types
+    )
+    LOGGER.info(
+        "Completed %s; registered %s v%s as @%s; native model=%s; metrics=%s",
+        config["experiment_name"], model_name, registered.version, model_alias,
+        native_path, metrics,
+    )
+    return metrics
 
-        # Log parameters and metrics
-        mlflow.log_param("max_models", args.models)
-        mlflow.log_param("max_runtime_secs", args.runtime)
-        mlflow.log_param("sample_frac", args.sample_frac)
-        mlflow.log_metric("log_loss", aml.leader.logloss())
-        mlflow.log_metric("AUC", aml.leader.auc())
 
-        # Log the best model (mlflow.h2o provides the API for logging & loading H2O models)
-        mlflow.h2o.log_model(aml.leader, artifact_path="model")
-        model_uri = mlflow.get_artifact_uri("model")
-        print(f'AutoML best model saved in {model_uri}')
-
-        native_model_dir = os.path.join(artifact_dir, 'h2o_model')
-        os.makedirs(native_model_dir, exist_ok=True)
-        native_model_path = h2o.save_model(
-            model=aml.leader,
-            path=native_model_dir,
-            force=True,
-        )
-        with open(os.path.join(artifact_dir, 'model_path.txt'), 'w', encoding='utf-8') as fp:
-            fp.write(native_model_path)
-        mlflow.log_artifact(col_types_path, artifact_path="model")
-        print(f'Native H2O model exported for inference at {native_model_path}')
-
-        # Log the leaderboard as an MLflow artifact (no more brittle local mlruns/ path)
-        lb = get_leaderboard(aml, extra_columns='ALL').as_data_frame()
-        with tempfile.TemporaryDirectory() as tmp:
-            lb_path = os.path.join(tmp, 'leaderboard.csv')
-            lb.to_csv(lb_path, index=False)
-            mlflow.log_artifact(lb_path, artifact_path="model")
-        print('Leaderboard logged as MLflow artifact')
-
-    # Register the model in the Model Registry and tag it with an alias
-    registered = mlflow.register_model(model_uri=f"runs:/{run.info.run_id}/model", name=model_name)
-    client.set_registered_model_alias(name=model_name, alias=model_alias, version=registered.version)
-    print(f'Registered model "{model_name}" v{registered.version} with alias @{model_alias}')
+def main():
+    logging.basicConfig(
+        level=environment_value("LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+    )
+    args = parse_args()
+    external_h2o_cluster = connect_h2o()
+    try:
+        run_experiment(args.config, args.target)
+    except Exception:
+        LOGGER.exception("Experiment failed")
+        raise
+    finally:
+        if not external_h2o_cluster:
+            h2o.cluster().shutdown(prompt=False)
 
 
 if __name__ == "__main__":

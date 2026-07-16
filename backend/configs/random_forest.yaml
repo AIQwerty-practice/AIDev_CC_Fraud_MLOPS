@@ -1,0 +1,21 @@
+experiment_name: credit-card-fraud-random-forest
+algorithm: RandomForest
+target: Class
+feature_version: baseline
+threshold: 0.5
+sample_frac: 1.0
+max_runtime_secs: 120
+max_models: 1
+seed: 42
+stopping_metric: AUC
+stopping_rounds: 3
+sort_metric: AUC
+balance_classes: true
+use_pre_split_test: true
+test_size: 0.2
+include_algos: []
+exclude_algos: []
+nfolds: 5
+parameters:
+  ntrees: 150
+  max_depth: 20

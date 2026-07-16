@@ -1,0 +1,16 @@
+backend/data/
+backend/model_artifacts/
+mlruns/
+mlartifacts/
+.venv/
+venv/
+**/__pycache__/
+*.py[cod]
+.git/
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+notebooks/
+QandA-FinalProject-AIDev.png
