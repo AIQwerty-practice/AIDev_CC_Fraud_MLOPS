@@ -68,3 +68,9 @@ $RECYCLE.BIN/
 build/
 dist/
 *.egg-info/
+
+# AWS Keys
+deploy/aws/*.pem
+deploy/aws/*.ppk
+*.pem
+*.ppk

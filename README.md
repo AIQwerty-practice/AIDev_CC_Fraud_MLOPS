@@ -44,8 +44,15 @@ cd backend
 python preprocess_creditcard.py
 ```
 
+The preprocessing pipeline removes `Time`, fits `StandardScaler` using only the
+training split's `Amount` values, transforms the train and test splits, and
+creates the lightweight sample files used for API and Streamlit demonstrations.
+
 Raw and processed data stay local. Git includes only `backend/data/sample_test.csv`
 and `backend/data/sample_test_labeled.csv` for lightweight demonstrations.
+Use `sample_test.csv` for prediction-only uploads and
+`sample_test_labeled.csv` for predictions with evaluation metrics and a
+confusion matrix.
 
 ## Experiment workflow
 
