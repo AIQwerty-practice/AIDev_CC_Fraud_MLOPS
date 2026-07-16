@@ -1,0 +1,72 @@
+services:
+  landing:
+    build:
+      context: .
+      dockerfile: deploy/landing/Dockerfile
+    image: fraud-landing:latest
+    environment:
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://app.barbaraplascencia.com}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-https://api.barbaraplascencia.com}
+      MLFLOW_PUBLIC_URL: ${MLFLOW_PUBLIC_URL:-https://mlflow.barbaraplascencia.com}
+      H2O_PUBLIC_URL: ${H2O_PUBLIC_URL:-https://h2o.barbaraplascencia.com}
+      GITHUB_URL: ${GITHUB_URL:-https://github.com/AIQwerty-practice/AIDev_CC_Fraud_MLOPS}
+    expose: ["80"]
+    networks: [project_network]
+
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/proxy_params:/etc/nginx/proxy_params:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      landing: {condition: service_started}
+      frontend: {condition: service_started}
+      backend: {condition: service_healthy}
+      mlflow: {condition: service_healthy}
+      h2o: {condition: service_healthy}
+    networks: [project_network]
+
+  mlflow:
+    extends:
+      file: docker-compose.yml
+      service: mlflow
+    restart: unless-stopped
+    environment:
+      MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_SERVER_ALLOWED_HOSTS:-mlflow,localhost,127.0.0.1,backend,trainer,mlflow.barbaraplascencia.com}
+
+  trainer:
+    extends:
+      file: docker-compose.yml
+      service: trainer
+
+  backend:
+    extends:
+      file: docker-compose.yml
+      service: backend
+    restart: unless-stopped
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    environment:
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://fraud.barbaraplascencia.com,https://app.barbaraplascencia.com}
+
+  frontend:
+    extends:
+      file: docker-compose.yml
+      service: frontend
+    restart: unless-stopped
+    command: ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--server.enableCORS=true", "--server.enableXsrfProtection=true", "--browser.serverAddress=app.barbaraplascencia.com", "--browser.serverPort=443"]
+
+  h2o:
+    extends:
+      file: docker-compose.yml
+      service: h2o
+    restart: unless-stopped
+
+volumes:
+  mlflow_data:
+  model_artifacts:
+
+networks:
+  project_network:

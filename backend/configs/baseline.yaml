@@ -1,0 +1,21 @@
+experiment_name: credit-card-fraud-baseline
+algorithm: AutoML
+target: Class
+feature_version: baseline
+threshold: 0.5
+train_path: data/processed/train.csv
+test_path: data/processed/test.csv
+use_pre_split_test: true
+test_size: 0.2
+sample_frac: 1.0
+max_runtime_secs: 120
+max_models: 10
+seed: 42
+stopping_metric: AUC
+stopping_rounds: 3
+sort_metric: AUC
+balance_classes: true
+nfolds: 5
+include_algos: [GBM, DRF, XGBoost]
+exclude_algos: []
+parameters: {}

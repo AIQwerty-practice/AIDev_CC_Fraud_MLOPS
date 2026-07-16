@@ -1,0 +1,15 @@
+data/
+model_artifacts/
+mlruns/
+mlartifacts/
+.venv/
+venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.git/
+.gitignore
+.env
+.env.*
+*.log
+*.tmp

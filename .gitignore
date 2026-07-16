@@ -1,62 +1,70 @@
-# ==========================
-# Python
-# ==========================
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual environments
-.venv/
-venv/
-env/
-
-# Jupyter
-.ipynb_checkpoints/
-
-# VS Code
-.vscode/
-
-# ==========================
-# MLflow
-# ==========================
-mlruns/
-mlartifacts/
-mlflow.db
-
-# ==========================
-# H2O Models
-# ==========================
-*.zip
-*.h2o
-models/
-
-# ==========================
-# Data Files
-# ==========================
-
-# Raw Kaggle dataset
-backend/data/raw/creditcard.csv
-
-# Generated training files
-backend/data/processed/train.csv
-backend/data/processed/test.csv
-
-# Keep demo files
+# Data: keep only intentionally curated sample datasets
+backend/data/raw/
+backend/data/processed/
+*.csv
 !backend/data/sample_test.csv
 !backend/data/sample_test_labeled.csv
 
-# ==========================
-# Logs
-# ==========================
-*.log
+# MLflow, H2O, and generated model artifacts
+mlruns/
+mlartifacts/
+models/
+model_artifacts/
+.mlflow/
+.h2o/
+h2ologs/
+*.mojo
+*.pkl
+*.joblib
 
-# ==========================
-# OS Files
-# ==========================
-.DS_Store
-Thumbs.db
+# Python environments and caches
+**/__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# ==========================
-# Docker temporary files
-# ==========================
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+secrets/
+*.secret
+*.key
+*.pem
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker-generated and temporary files
+.docker/
+docker-compose.override.yml
 *.pid
+*.log
+*.tmp
+tmp/
+temp/
+
+# Jupyter transient files (not notebooks)
+.ipynb_checkpoints/
+
+# Operating-system files
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/

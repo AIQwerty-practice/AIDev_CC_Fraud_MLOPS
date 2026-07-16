@@ -1,0 +1,21 @@
+# Fast end-to-end pipeline validation using the versioned labeled sample.
+experiment_name: credit-card-fraud-smoke-test
+algorithm: AutoML
+target: Class
+feature_version: baseline
+threshold: 0.5
+train_path: data/sample_test_labeled.csv
+use_pre_split_test: false
+test_size: 0.25
+sample_frac: 1.0
+max_runtime_secs: 30
+max_models: 2
+seed: 42
+stopping_metric: AUC
+stopping_rounds: 2
+sort_metric: AUC
+balance_classes: true
+nfolds: 0
+include_algos: [GBM, DRF]
+exclude_algos: []
+parameters: {}

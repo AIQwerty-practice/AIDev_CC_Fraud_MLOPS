@@ -80,6 +80,7 @@ Write-Host ""
 Write-Host "  UI Streamlit : http://localhost:8501" -ForegroundColor Green
 Write-Host "  API FastAPI  : http://localhost:8000/docs" -ForegroundColor Green
 Write-Host "  MLflow UI    : http://localhost:5000" -ForegroundColor Green
+Write-Host "  H2O Flow     : http://localhost:54321" -ForegroundColor Green
 Write-Host ""
 Write-Host "Astuce : dans l'UI, uploade backend\data\sample_test.csv ou sample_test_labeled.csv puis clique 'Start Prediction'." -ForegroundColor DarkGray
 Write-Host "Pour tout arreter : .\start.ps1 -Down" -ForegroundColor DarkGray
