@@ -13,19 +13,12 @@ flowchart LR
     D["Local raw/processed data"] --> T
     T --> H["H2O AutoML or estimator"]
     H --> M["MLflow runs and artifacts"]
-    M --> R["Model Registry: champion alias"]
+    M --> R["Model Registry - champion alias"]
     H --> V["Shared native-model volume"]
     R --> A["FastAPI prediction API"]
-    V -. fallback .-> A
+    V -.->|fallback| A
     A --> S["Streamlit frontend"]
 ```
-
-- `backend/train.py` — the only training entry point
-- `backend/experiment_utils.py` — config, data split, metrics, and artifacts
-- `backend/model_factory.py` — AutoML and explicit-estimator construction
-- `backend/configs/` — experiment definitions
-- `backend/main.py` — registry-first FastAPI model serving
-- `frontend/app.py` — Streamlit upload, prediction, and evaluation interface
 
 ## Dataset
 
