@@ -5,6 +5,9 @@ estimators, MLflow experiment tracking and model registry, FastAPI inference,
 Streamlit, and Docker Compose. Every experiment is launched through the single
 `backend/train.py` entry point with a YAML configuration.
 
+## Suggestion
+We suggest to run the app and containers on chrome with dark mode theme in your settings. 
+You can do this in the Google Chrome browser by going to Settings > Appearance > Mode and selecting "Dark"
 ## Architecture
 
 ```mermaid
