@@ -201,13 +201,13 @@ ports 80 and 443 publicly.
 
 | Service | URL |
 |---|---|
-| Landing page | https://fraud.barbaraplascencia.com |
-| Streamlit | https://app.barbaraplascencia.com |
-| FastAPI | https://api.barbaraplascencia.com |
-| Swagger | https://api.barbaraplascencia.com/docs |
-| Health | https://api.barbaraplascencia.com/health |
-| MLflow | https://mlflow.barbaraplascencia.com |
-| H2O Flow | https://h2o.barbaraplascencia.com |
+| Landing page | https://fraud.yourdomain.com |
+| Streamlit | https://app.yourdomain.com |
+| FastAPI | https://api.yourdomain.com |
+| Swagger | https://api.yourdomain.com/docs |
+| Health | https://api.yourdomain.com/health |
+| MLflow | https://mlflow.yourdomain.com |
+| H2O Flow | https://h2o.yourdomain.com |
 | GitHub | https://github.com/AIQwerty-practice/AIDev_CC_Fraud_MLOPS |
 
 ### EC2 prerequisites
@@ -271,11 +271,11 @@ Equivalent Certbot domains are:
 
 ```bash
 sudo certbot certonly --standalone \
-  -d fraud.barbaraplascencia.com \
-  -d app.barbaraplascencia.com \
-  -d api.barbaraplascencia.com \
-  -d mlflow.barbaraplascencia.com \
-  -d h2o.barbaraplascencia.com
+  -d fraud.yourdomain.com \
+  -d app.yourdomain.com \
+  -d api.yourdomain.com \
+  -d mlflow.yourdomain.com \
+  -d h2o.yourdomain.com
 ```
 
 Certificates and private keys stay under `/etc/letsencrypt` and must never be
@@ -333,3 +333,42 @@ CORS allows only the configured landing and Streamlit origins.
 - Store operational secrets in AWS Systems Manager Parameter Store or Secrets Manager.
 - Add CloudWatch log shipping, uptime alerts, and disk/memory monitoring.
 - Pin container image and Python dependency versions after validation.
+
+  ## AWS EC2 Production Deployment
+
+The EC2 deployment uses a separate Docker Compose configuration and Nginx reverse proxy. It should not be started with the local `docker-compose.yml`.
+
+### Production requirements
+
+Before deploying, confirm that the EC2 instance has:
+
+- Ubuntu with Docker Engine and Docker Compose installed
+- A public IPv4 address, preferably an AWS Elastic IP
+- Security Group inbound rules for:
+  - `22` — SSH, restricted to the administrator's IP when possible
+  - `80` — HTTP
+  - `443` — HTTPS
+- DNS records pointing to the EC2 public IP:
+  - `yourdomain.com`
+  - `fraud.yourdomain.com`
+  - `api.yourdomain.com`
+  - `mlflow.yourdomain.com`
+
+Ports `5000`, `8000`, and `8501` do not need to be publicly exposed when all traffic is routed through Nginx.
+
+### Production configuration files
+
+| File | Purpose |
+|---|---|
+| `docker-compose.prod.yml` | Defines the production containers, networks, volumes, health checks, and Nginx service |
+| `.env` | Stores deployment-specific environment variables and secrets |
+| `.env.example` | Documents the required variables without containing real secrets |
+| `deploy/nginx/` | Contains Nginx virtual-host and reverse-proxy configuration |
+| `index.html` | Provides the main project landing page |
+
+The `.env` file must be created directly on EC2 and must not be committed to GitHub.
+
+```bash
+cp .env.example .env
+nano .env
+chmod 600 .env
