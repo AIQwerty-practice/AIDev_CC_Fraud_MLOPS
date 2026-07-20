@@ -351,6 +351,7 @@ Before deploying, confirm that the EC2 instance has:
 - DNS records pointing to the EC2 public IP:
   - `yourdomain.com`
   - `fraud.yourdomain.com`
+  - `app.yourdomain.com`
   - `api.yourdomain.com`
   - `mlflow.yourdomain.com`
 
@@ -366,9 +367,87 @@ Ports `5000`, `8000`, and `8501` do not need to be publicly exposed when all tra
 | `deploy/nginx/` | Contains Nginx virtual-host and reverse-proxy configuration |
 | `index.html` | Provides the main project landing page |
 
-The `.env` file must be created directly on EC2 and must not be committed to GitHub.
 
+
+The `.env` file must be created directly on EC2 and must not be committed to GitHub.
 ```bash
 cp .env.example .env
 nano .env
 chmod 600 .env
+```
+Validate the production configuration before starting it:
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml config --quiet
+```
+Start the production stack
+
+Run these commands from the repository directory:
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml up -d --build
+```
+Check the container status:
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml ps
+```
+
+Review logs if a service is unavailable:
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml logs --tail=150 
+```
+Nginx reverse proxy
+
+Nginx is the public entry point for the application. It receives traffic on ports 80 and 443 and routes each hostname to the appropriate Docker service:
+
+Public address	Internal service
+yourdomain.com	or fraud.yourdomain.com Project landing page
+app.yourdomain.com	Streamlit frontend
+api.yourdomain.com	FastAPI backend
+mlflow.yourdomain.com	MLflow tracking server
+
+Nginx communicates with the services using Docker service names and internal ports. Therefore, its upstream addresses must match the service names defined in docker-compose.prod.yml.
+
+If Nginx returns:
+
+404 Not Found: verify the hostname and Nginx server_name configuration.
+502 Bad Gateway: verify that the destination container is running, healthy, and listening on the expected internal port.
+A certificate warning: replace temporary self-signed certificates with trusted certificates before public use.
+
+After modifying the Nginx configuration, validate it inside the container:
+
+```bash
+ docker compose --env-file .env -f docker-compose.prod.yml exec nginx nginx -t
+```
+Then reload Nginx:
+```bash
+ docker compose --env-file .env -f docker-compose.prod.yml exec nginx nginx -s reload
+```
+
+If the Nginx container itself was changed, recreate it:
+
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml up -d --build nginx
+```
+Stop or restart production
+
+Stop and remove the containers while preserving named volumes:
+```bash
+ docker compose --env-file .env -f docker-compose.prod.yml down
+```
+Restart the stack:
+```bash
+ docker compose --env-file .env -f docker-compose.prod.yml up -d
+```
+Do not use down -v unless the Docker volumes and their stored data are intentionally being deleted.
+
+Deployment considerations
+Use an Elastic IP so DNS records do not need to be updated whenever the EC2 instance is stopped and restarted.
+Never commit .env, private keys, passwords, tokens, or TLS private keys.
+Keep MLflow data and model artifacts in persistent Docker volumes or EC2-mounted directories.
+Confirm that all containers are healthy before testing the public URLs.
+A short interruption may occur when the Nginx container is recreated.
+Use trusted TLS certificates, such as Let's Encrypt certificates, for a public production deployment.
+Back up persistent MLflow data and model artifacts before major upgrades.
+
+
+One small correction to consider: if your current Security Group still exposes ports `5000`, `8000`, and `8501` publicly, you can eventually remove those inbound rules after confirming Nginx successfully provides access through ports `80/443`. This reduces unnecessary public exposure.
+ 
