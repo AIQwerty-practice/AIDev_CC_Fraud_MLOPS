@@ -182,6 +182,61 @@ $env:BACKEND_URL = "http://127.0.0.1:8000/predict"
 streamlit run app.py
 ```
 
+## Load testing with Locust
+
+Load-testing dependencies are kept separate from the production backend and
+frontend dependencies:
+
+```text
+load_tests/
+|-- locustfile.py
+`-- requirements-load-test.txt
+```
+
+The Locust scenario simulates clients using the fraud FastAPI service. It sends
+weighted traffic to `POST /predict`, `GET /health`, and `GET /`. Prediction
+requests upload a small batch from `backend/data/sample_test.csv` and verify
+that the API returns a prediction for every submitted transaction.
+
+Run load testing only after at least one training experiment has completed,
+the champion model has been registered, and the FastAPI predictor is healthy.
+The recommended workflow is:
+
+1. Start the stack and let the trainer finish successfully.
+2. Verify a normal prediction through Streamlit or FastAPI.
+3. Start Locust from a separate PowerShell terminal.
+
+Install the isolated load-testing dependency from the repository root:
+
+```powershell
+pip install -r load_tests\requirements-load-test.txt
+```
+
+Start Locust against the locally published FastAPI port:
+
+```powershell
+locust -f load_tests\locustfile.py --host http://127.0.0.1:8000
+```
+
+Open http://127.0.0.1:8089, enter a user count and spawn rate, and start the
+test. Begin with a small load because each prediction request invokes the H2O
+model. Locust reports request throughput, response times, percentiles, and
+failures for each grouped endpoint.
+
+By default, each simulated prediction uploads up to 25 rows. Override the batch
+size or use another compatible labeled or unlabeled CSV with environment
+variables before starting Locust:
+
+```powershell
+$env:LOCUST_SAMPLE_ROWS = "50"
+$env:LOCUST_SAMPLE_CSV = "C:\path\to\demo_fraud_unlabeled.csv"
+locust -f load_tests\locustfile.py --host http://127.0.0.1:8000
+```
+
+`LOCUST_SAMPLE_ROWS` must be at least `1`. A labeled file is accepted because
+the prediction service removes the `Class` column before inference. Stop Locust
+with `Ctrl+C`; stopping Locust does not stop the Docker application stack.
+
 ## Repository safety
 
 The `.gitignore` excludes raw/processed data, MLflow stores, generated models,
