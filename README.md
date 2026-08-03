@@ -218,14 +218,23 @@ Start Locust against the locally published FastAPI port:
 locust -f load_tests\locustfile.py --host http://127.0.0.1:8000
 ```
 
-Open http://127.0.0.1:8089, enter a user count and spawn rate, and start the
-test. Begin with a small load because each prediction request invokes the H2O
-model. Locust reports request throughput, response times, percentiles, and
-failures for each grouped endpoint.
+Open http://127.0.0.1:8089/dataset before starting the test. The custom Dataset
+Manager displays the active file and lets you upload a labeled or unlabeled CSV,
+choose how many rows each prediction request sends, or restore the default
+dataset. Uploaded data is validated for the required `V1` through `V28` and
+`Amount` columns; `Class` is optional and must contain only `0` or `1`. Uploads
+are held in Locust process memory and are not written to disk.
 
-By default, each simulated prediction uploads up to 25 rows. Override the batch
-size or use another compatible labeled or unlabeled CSV with environment
-variables before starting Locust:
+After activating a dataset, select **Return to Locust**, enter a user count and
+spawn rate, and start the test. Begin with a small load because each prediction
+request invokes the H2O model. Locust reports request throughput, response
+times, percentiles, and failures for each grouped endpoint. For predictable
+results, stop an active test before changing the active dataset.
+
+The browser upload page is intended for a local, single-process Locust run. By
+default, each simulated prediction uploads up to 25 rows from
+`backend/data/sample_test.csv`. Environment variables remain available for
+headless, scripted, and automated runs:
 
 ```powershell
 $env:LOCUST_SAMPLE_ROWS = "50"
@@ -233,9 +242,12 @@ $env:LOCUST_SAMPLE_CSV = "C:\path\to\demo_fraud_unlabeled.csv"
 locust -f load_tests\locustfile.py --host http://127.0.0.1:8000
 ```
 
-`LOCUST_SAMPLE_ROWS` must be at least `1`. A labeled file is accepted because
-the prediction service removes the `Class` column before inference. Stop Locust
-with `Ctrl+C`; stopping Locust does not stop the Docker application stack.
+`LOCUST_SAMPLE_ROWS` must be between `1` and `5000`. A labeled file is accepted
+because the prediction service removes the `Class` column before inference.
+The upload page has a 10 MB file-size limit. It is not synchronized across
+distributed Locust workers; use a shared fixture and environment variables for
+distributed tests. Stop Locust with `Ctrl+C`; stopping Locust does not stop the
+Docker application stack.
 
 ## Repository safety
 
